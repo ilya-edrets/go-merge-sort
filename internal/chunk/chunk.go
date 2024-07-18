@@ -13,12 +13,11 @@ import (
 type Line []byte
 
 type Chunk struct {
-	filePath       string
-	outputFilePath string
+	filePath string
 }
 
-func NewChunk(filePath string, outputFilePath string) *Chunk {
-	return &Chunk{filePath: filePath, outputFilePath: outputFilePath}
+func NewChunk(filePath string) *Chunk {
+	return &Chunk{filePath: filePath}
 }
 
 func (chunk *Chunk) Sort() error {
@@ -52,7 +51,8 @@ func (chunk *Chunk) Sort() error {
 
 	sort.Slice(lines, func(i, j int) bool { return less(lines[i], lines[j]) })
 
-	output, err := os.Create(chunk.outputFilePath)
+	file.Close()
+	output, err := os.Create(chunk.filePath)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (chunk *Chunk) SplitIntoChunks(outputFolder string, chunkSize int) ([]*Chun
 			currentChunkSize = 0
 			chunkNumber++
 			filePath := filepath.Join(outputFolder, strconv.Itoa(chunkNumber)+".chunk")
-			chunk := NewChunk(filePath, filePath)
+			chunk := NewChunk(filePath)
 			chunkFile, err := os.Create(filePath)
 			if err != nil {
 				return result, err
@@ -131,7 +131,7 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 	defer file2.Close()
 
 	outputFileName := strings.Split(chunk1.filePath, ".")[0] + "+" + strings.Split(chunk2.filePath, ".")[0] + ".chunk"
-	result := NewChunk(outputFileName, outputFileName)
+	result := NewChunk(outputFileName)
 	outputFile, err := os.Create(outputFileName)
 	if err != nil {
 		return nil, err
@@ -202,6 +202,15 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 
 func (chunk *Chunk) Remove() error {
 	return os.Remove(chunk.filePath)
+}
+
+func (chunk *Chunk) Rename(filePath string) error {
+	err := os.Rename(chunk.filePath, filePath)
+	if err == nil {
+		chunk.filePath = filePath
+	}
+
+	return err
 }
 
 func writeLine(line string, writeBuffer *bufio.Writer) (int, error) {

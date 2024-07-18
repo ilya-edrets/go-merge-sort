@@ -29,7 +29,7 @@ type args struct {
 
 func main() {
 	defer tracing.Duration(tracing.Track("main"))
-	maxNumber := 1000
+	maxNumber := 100000
 	minLineLength := 4
 	maxLineLength := getMaxLineLength(maxNumber)
 	args := getArgs()
@@ -95,7 +95,7 @@ func getMaxLineLength(maxNumber int) int {
 
 func getArgs() args {
 	var err error
-	args := args{size: 1000, output: "output.txt"}
+	args := args{size: 1000, output: "unsorted.txt"}
 
 	idx := slices.IndexFunc(os.Args, func(s string) bool { return s == "--size" })
 	if idx >= 0 {
@@ -107,10 +107,7 @@ func getArgs() args {
 
 	idx = slices.IndexFunc(os.Args, func(s string) bool { return s == "--output" })
 	if idx >= 0 {
-		args.size, err = strconv.Atoi(os.Args[idx+1])
-		if err != nil {
-			panic(err)
-		}
+		args.output = os.Args[idx+1]
 	}
 
 	return args

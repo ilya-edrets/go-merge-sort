@@ -4,14 +4,16 @@ import (
 	"merge-sort/internal/chunk"
 	"merge-sort/internal/task"
 	"merge-sort/internal/tracing"
+	"os"
+	"slices"
+	"strconv"
 )
 
 type args struct {
-	input           string
-	outputFolder    string
-	outputFile      string
-	chunkSize       int
-	parallelWorkers int32
+	input        string
+	outputFolder string
+	outputFile   string
+	chunkSize    int
 }
 
 type mergeResult struct {
@@ -23,7 +25,7 @@ func main() {
 	defer tracing.Duration(tracing.Track("main"))
 	args := getArgs()
 
-	inputFile := chunk.NewChunk(args.input, args.outputFile)
+	inputFile := chunk.NewChunk(args.input)
 	chunks, err := inputFile.SplitIntoChunks(args.outputFolder, args.chunkSize)
 	if err != nil {
 		panic(err)
@@ -63,6 +65,8 @@ func main() {
 
 		chunks = nextChunks
 	}
+
+	chunks[0].Rename(args.outputFile)
 }
 
 func mergePair(channel chan mergeResult, chunk1 *chunk.Chunk, chunk2 *chunk.Chunk) {
@@ -83,11 +87,36 @@ func mergePair(channel chan mergeResult, chunk1 *chunk.Chunk, chunk2 *chunk.Chun
 }
 
 func getArgs() args {
-	return args{
-		input:           "unsorted.txt",
-		outputFolder:    ".",
-		outputFile:      "sorted.txt",
-		chunkSize:       100, // 10 * 1024 * 1024,
-		parallelWorkers: 12,
+	var err error
+	args := args{
+		input:        "unsorted.txt",
+		outputFolder: ".",
+		outputFile:   "sorted.txt",
+		chunkSize:    1000,
 	}
+
+	idx := slices.IndexFunc(os.Args, func(s string) bool { return s == "--input" })
+	if idx >= 0 {
+		args.input = os.Args[idx+1]
+	}
+
+	idx = slices.IndexFunc(os.Args, func(s string) bool { return s == "--outputFolder" })
+	if idx >= 0 {
+		args.outputFolder = os.Args[idx+1]
+	}
+
+	idx = slices.IndexFunc(os.Args, func(s string) bool { return s == "--outputFile" })
+	if idx >= 0 {
+		args.outputFile = os.Args[idx+1]
+	}
+
+	idx = slices.IndexFunc(os.Args, func(s string) bool { return s == "--chunkSize" })
+	if idx >= 0 {
+		args.chunkSize, err = strconv.Atoi(os.Args[idx+1])
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return args
 }
