@@ -1,3 +1,3 @@
-module example/hello
+module merge-sort
 
 go 1.22.5
