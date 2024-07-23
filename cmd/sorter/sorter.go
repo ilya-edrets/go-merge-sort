@@ -2,6 +2,7 @@ package main
 
 import (
 	"merge-sort/internal/chunk"
+	sortingfile "merge-sort/internal/sorting-file"
 	"merge-sort/internal/tracing"
 	"os"
 	"slices"
@@ -33,7 +34,7 @@ func main() {
 func splitIntoChunks(args args) []*chunk.Chunk {
 	defer tracing.Duration(tracing.Track("splitIntoChunks"))
 
-	inputFile := chunk.NewChunk(args.input)
+	inputFile := sortingfile.NewSortingFile(args.input)
 	chunks, err := inputFile.SplitIntoChunks(args.outputFolder, args.chunkSize)
 	if err != nil {
 		panic(err)

@@ -1,43 +1,36 @@
 package chunk
 
 import (
-	"bufio"
 	"encoding/binary"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-)
-
-const (
-	defaultBufSize = 1024 * 1024
 )
 
 type Line []byte
 
 type Chunk struct {
 	filePath string
+	lines    []Line
 }
 
 func NewChunk(filePath string) *Chunk {
 	return &Chunk{filePath: filePath}
 }
 
-func (chunk *Chunk) Sort() error {
-	file, err := os.Open(chunk.filePath)
+func (chunk *Chunk) load() error {
+	reader := NewChunkReader()
+	err := reader.Open(chunk.filePath)
 	if err != nil {
 		return err
 	}
+	defer reader.Close()
 
-	defer file.Close()
-
-	reader := bufio.NewReaderSize(file, defaultBufSize)
-
-	lines := make([]Line, 0)
+	chunk.lines = make([]Line, 0)
 	isEOF := false
-	for text, err := reader.ReadBytes('\n'); !isEOF; text, err = reader.ReadBytes('\n') {
+	for text, err := reader.ReadLine(); !isEOF; text, err = reader.ReadLine() {
 		isEOF = err == io.EOF
 		if err != nil && !isEOF {
 			return err
@@ -52,23 +45,22 @@ func (chunk *Chunk) Sort() error {
 			continue
 		}
 
-		lines = append(lines, line)
+		chunk.lines = append(chunk.lines, line)
 	}
-	file.Close()
 
-	sort.Slice(lines, func(i, j int) bool { return less(lines[i], lines[j]) })
+	return nil
+}
 
-	output, err := os.Create(chunk.filePath)
+func (chunk *Chunk) flush() error {
+	writer := NewChunkWriter()
+	err := writer.Create(chunk.filePath)
 	if err != nil {
 		return err
 	}
-	defer output.Close()
+	defer writer.Close()
 
-	writer := bufio.NewWriter(output)
-	defer writer.Flush()
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
+	for i := 0; i < len(chunk.lines); i++ {
+		line := chunk.lines[i]
 
 		err := writeLine(line, writer)
 		if err != nil {
@@ -76,92 +68,50 @@ func (chunk *Chunk) Sort() error {
 		}
 	}
 
+	chunk.lines = nil
 	return nil
 }
 
-func (chunk *Chunk) SplitIntoChunks(outputFolder string, chunkSize int) ([]*Chunk, error) {
-	result := make([]*Chunk, 0)
-
-	file, err := os.Open(chunk.filePath)
+func (chunk *Chunk) Sort() error {
+	err := chunk.load()
 	if err != nil {
-		return result, err
+		return err
 	}
-	defer file.Close()
-	reader := bufio.NewReaderSize(file, 1024*1024)
+	sort.Slice(chunk.lines, func(i, j int) bool { return less(chunk.lines[i], chunk.lines[j]) })
 
-	var writeBuffer *bufio.Writer
-	currentChunkSize := chunkSize
-	chunkNumber := 0
-	for line, err := reader.ReadBytes('\n'); true; line, err = reader.ReadBytes('\n') {
-		isEOF := err == io.EOF
-		if err != nil && !isEOF {
-			return result, err
-		}
-
-		if currentChunkSize >= chunkSize {
-			currentChunkSize = 0
-			chunkNumber++
-			filePath := filepath.Join(outputFolder, strconv.Itoa(chunkNumber)+".chunk")
-			chunk := NewChunk(filePath)
-			chunkFile, err := os.Create(filePath)
-			if err != nil {
-				return result, err
-			}
-			defer file.Close()
-			result = append(result, chunk)
-			writeBuffer = bufio.NewWriterSize(chunkFile, 1024*1024)
-			defer writeBuffer.Flush()
-		}
-
-		nn := 0
-		nn, err = writeBuffer.Write(line)
-		if err != nil {
-			return result, err
-		}
-		currentChunkSize += nn
-		if isEOF {
-			if line[len(line)-1] != '\n' {
-				writeBuffer.WriteByte('\n')
-			}
-			break
-		}
-	}
-
-	return result, nil
+	return chunk.flush()
 }
 
 func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
-	file1, err := os.Open(chunk1.filePath)
+	reader1 := NewChunkReader()
+	err := reader1.Open(chunk1.filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer file1.Close()
+	defer reader1.Close()
 
-	file2, err := os.Open(chunk2.filePath)
+	reader2 := NewChunkReader()
+	err = reader2.Open(chunk2.filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer file2.Close()
+	defer reader2.Close()
 
 	outputFileName := strings.Split(chunk1.filePath, ".")[0] + "+" + strings.Split(chunk2.filePath, ".")[0] + ".chunk"
 	result := NewChunk(outputFileName)
-	outputFile, err := os.Create(outputFileName)
+	writer := NewChunkWriter()
+	err = writer.Create(outputFileName)
 	if err != nil {
 		return nil, err
 	}
-	defer outputFile.Close()
-
-	reader1 := bufio.NewReaderSize(file1, defaultBufSize)
-	reader2 := bufio.NewReaderSize(file2, defaultBufSize)
-	writer := bufio.NewWriterSize(outputFile, defaultBufSize)
-	defer writer.Flush()
+	defer writer.Close()
 
 	var line1, line2, resultLine Line = nil, nil, nil
 	reader1End, reader2End := false, false
 
 	for !reader1End || !reader2End {
 		if line1 == nil {
-			text1, err := reader1.ReadBytes('\n')
+			text1, err := reader1.ReadLine()
 			reader1End = err == io.EOF
 			line1, err = stringToLine(text1)
 			if err != nil {
@@ -170,7 +120,7 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 		}
 
 		if line2 == nil {
-			text2, err := reader2.ReadBytes('\n')
+			text2, err := reader2.ReadLine()
 			reader2End = err == io.EOF
 			line2, err = stringToLine(text2)
 			if err != nil {
@@ -244,15 +194,15 @@ func stringToLine(line []byte) (Line, error) {
 	return result, nil
 }
 
-func writeLine(line Line, writer *bufio.Writer) error {
+func writeLine(line Line, writer *ChunkWriter) error {
 	number := int32(binary.BigEndian.Uint32(line))
 
-	_, err := writer.WriteString(strconv.Itoa(int(number)))
+	_, err := writer.WriteLine([]byte(strconv.Itoa(int(number))))
 	if err != nil {
 		return err
 	}
 
-	_, err = writer.Write(line[4:])
+	_, err = writer.WriteLine(line[4:])
 	if err != nil {
 		return err
 	}
