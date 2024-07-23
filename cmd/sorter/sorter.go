@@ -31,6 +31,8 @@ func main() {
 }
 
 func splitIntoChunks(args args) []*chunk.Chunk {
+	defer tracing.Duration(tracing.Track("splitIntoChunks"))
+
 	inputFile := chunk.NewChunk(args.input)
 	chunks, err := inputFile.SplitIntoChunks(args.outputFolder, args.chunkSize)
 	if err != nil {
@@ -41,6 +43,8 @@ func splitIntoChunks(args args) []*chunk.Chunk {
 }
 
 func sortChunks(chunks []*chunk.Chunk) {
+	defer tracing.Duration(tracing.Track("sortChunks"))
+
 	sortChannel := make(chan error)
 
 	for _, chunk := range chunks {
@@ -58,6 +62,8 @@ func sortChunks(chunks []*chunk.Chunk) {
 }
 
 func mergeChunks(chunks []*chunk.Chunk) {
+	defer tracing.Duration(tracing.Track("mergeChunks"))
+
 	mergeChannel := make(chan mergeResult)
 
 	for len(chunks) > 1 {
@@ -87,6 +93,8 @@ func mergeChunks(chunks []*chunk.Chunk) {
 }
 
 func mergePair(chunk1 *chunk.Chunk, chunk2 *chunk.Chunk) (*chunk.Chunk, error) {
+	defer tracing.Duration(tracing.Track("mergePair"))
+
 	chunk, err := chunk1.Merge(chunk2)
 	if err != nil {
 		return chunk, err

@@ -3,11 +3,16 @@ package chunk
 import (
 	"bufio"
 	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+)
+
+const (
+	defaultBufSize = 1024 * 1024
 )
 
 type Line []byte
@@ -28,11 +33,17 @@ func (chunk *Chunk) Sort() error {
 
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	reader := bufio.NewReaderSize(file, defaultBufSize)
 
 	lines := make([]Line, 0)
-	for scanner.Scan() {
-		line, err := stringToLine(scanner.Text())
+	isEOF := false
+	for text, err := reader.ReadBytes('\n'); !isEOF; text, err = reader.ReadBytes('\n') {
+		isEOF = err == io.EOF
+		if err != nil && !isEOF {
+			return err
+		}
+
+		line, err := stringToLine(text)
 		if err != nil {
 			return err
 		}
@@ -43,15 +54,10 @@ func (chunk *Chunk) Sort() error {
 
 		lines = append(lines, line)
 	}
-
-	err = scanner.Err()
-	if err != nil {
-		return err
-	}
+	file.Close()
 
 	sort.Slice(lines, func(i, j int) bool { return less(lines[i], lines[j]) })
 
-	file.Close()
 	output, err := os.Create(chunk.filePath)
 	if err != nil {
 		return err
@@ -63,13 +69,8 @@ func (chunk *Chunk) Sort() error {
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		str := lineToString(line)
-		_, err := writer.WriteString(str)
-		if err != nil {
-			return err
-		}
 
-		_, err = writer.WriteRune('\n')
+		err := writeLine(line, writer)
 		if err != nil {
 			return err
 		}
@@ -86,12 +87,17 @@ func (chunk *Chunk) SplitIntoChunks(outputFolder string, chunkSize int) ([]*Chun
 		return result, err
 	}
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
+	reader := bufio.NewReaderSize(file, 1024*1024)
 
 	var writeBuffer *bufio.Writer
 	currentChunkSize := chunkSize
 	chunkNumber := 0
-	for scanner.Scan() {
+	for line, err := reader.ReadBytes('\n'); true; line, err = reader.ReadBytes('\n') {
+		isEOF := err == io.EOF
+		if err != nil && !isEOF {
+			return result, err
+		}
+
 		if currentChunkSize >= chunkSize {
 			currentChunkSize = 0
 			chunkNumber++
@@ -103,18 +109,25 @@ func (chunk *Chunk) SplitIntoChunks(outputFolder string, chunkSize int) ([]*Chun
 			}
 			defer file.Close()
 			result = append(result, chunk)
-			writeBuffer = bufio.NewWriter(chunkFile)
+			writeBuffer = bufio.NewWriterSize(chunkFile, 1024*1024)
 			defer writeBuffer.Flush()
 		}
 
-		nn, err := writeLine(scanner.Text(), writeBuffer)
+		nn := 0
+		nn, err = writeBuffer.Write(line)
 		if err != nil {
 			return result, err
 		}
 		currentChunkSize += nn
+		if isEOF {
+			if line[len(line)-1] != '\n' {
+				writeBuffer.WriteByte('\n')
+			}
+			break
+		}
 	}
 
-	return result, scanner.Err()
+	return result, nil
 }
 
 func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
@@ -138,36 +151,34 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 	}
 	defer outputFile.Close()
 
-	scanner1 := bufio.NewScanner(file1)
-	scanner2 := bufio.NewScanner(file2)
-	writer := bufio.NewWriter(outputFile)
+	reader1 := bufio.NewReaderSize(file1, defaultBufSize)
+	reader2 := bufio.NewReaderSize(file2, defaultBufSize)
+	writer := bufio.NewWriterSize(outputFile, defaultBufSize)
 	defer writer.Flush()
 
 	var line1, line2, resultLine Line = nil, nil, nil
-	scanner1End, scanner2End := false, false
+	reader1End, reader2End := false, false
 
-	for !scanner1End || !scanner2End {
+	for !reader1End || !reader2End {
 		if line1 == nil {
-			scanner1End = !scanner1.Scan()
-			if !scanner1End {
-				line1, err = stringToLine(scanner1.Text())
-				if err != nil {
-					return nil, err
-				}
+			text1, err := reader1.ReadBytes('\n')
+			reader1End = err == io.EOF
+			line1, err = stringToLine(text1)
+			if err != nil {
+				return nil, err
 			}
 		}
 
 		if line2 == nil {
-			scanner2End = !scanner2.Scan()
-			if !scanner2End {
-				line2, err = stringToLine(scanner2.Text())
-				if err != nil {
-					return nil, err
-				}
+			text2, err := reader2.ReadBytes('\n')
+			reader2End = err == io.EOF
+			line2, err = stringToLine(text2)
+			if err != nil {
+				return nil, err
 			}
 		}
 
-		if scanner1End && scanner2End {
+		if reader1End && reader2End {
 			break
 		}
 
@@ -185,13 +196,7 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 			line2 = nil
 		}
 
-		str := lineToString(resultLine)
-		_, err := writer.WriteString(str)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = writer.WriteRune('\n')
+		err := writeLine(resultLine, writer)
 		if err != nil {
 			return nil, err
 		}
@@ -213,42 +218,46 @@ func (chunk *Chunk) Rename(filePath string) error {
 	return err
 }
 
-func writeLine(line string, writeBuffer *bufio.Writer) (int, error) {
-	n1, _ := writeBuffer.WriteString(line)
-	n2, err := writeBuffer.WriteRune('\n')
+func stringToLine(line []byte) (Line, error) {
+	i := 0
+	for ; i < len(line) && line[i] != '.'; i++ {
+	}
 
-	return n1 + n2, err
-}
-
-func stringToLine(str string) (Line, error) {
-	parts := strings.Split(str, ".")
-	if len(parts) != 2 {
+	if i == len(line) {
 		return nil, nil
 	}
 
-	n, err := strconv.Atoi(parts[0])
+	part1 := line[:i]
+	text := line[i:]
+
+	n, err := strconv.Atoi(string(part1))
 	if err != nil {
 		return nil, err
 	}
 	number := int32(n)
-	text := parts[1]
 
-	line := make([]byte, 4+len(text))
-	binary.BigEndian.PutUint32(line, uint32(number))
-	for i := 4; i < len(line); i++ {
-		line[i] = text[i-4]
-	}
+	result := make([]byte, 4+len(text))
+	resultPt2 := result[4:]
+	binary.BigEndian.PutUint32(result, uint32(number))
+	copy(resultPt2, text)
 
-	return line, nil
+	return result, nil
 }
 
-func lineToString(line Line) string {
+func writeLine(line Line, writer *bufio.Writer) error {
 	number := int32(binary.BigEndian.Uint32(line))
 
-	part1 := strconv.Itoa(int(number))
-	part2 := string(line[4:])
+	_, err := writer.WriteString(strconv.Itoa(int(number)))
+	if err != nil {
+		return err
+	}
 
-	return strings.Join([]string{part1, part2}, ".")
+	_, err = writer.Write(line[4:])
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func less(line1 Line, line2 Line) bool {
