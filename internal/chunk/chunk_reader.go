@@ -16,7 +16,6 @@ type ChunkReader struct {
 	file         *os.File
 	bufReader    *bufio.Reader
 	numberBuffer []byte
-	isRawChunk   bool
 	readLine     func(*ChunkReader) ([]byte, error)
 }
 
@@ -70,17 +69,39 @@ func readStringLine(reader *ChunkReader) ([]byte, error) {
 
 func readRawLine(reader *ChunkReader) ([]byte, error) {
 	n, err := reader.bufReader.Read(reader.numberBuffer)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
 	if n < 4 {
-		return nil, io.EOF
+		_, err := reader.bufReader.Read(reader.numberBuffer[n:])
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+
+		if err == io.EOF {
+			return nil, nil
+		}
 	}
 
 	length := int(int32(binary.BigEndian.Uint32(reader.numberBuffer)))
+
+	if length > 200 {
+		panic(length)
+	}
+
 	result := make([]byte, length)
 	n, err = reader.bufReader.Read(result)
+	if err == io.EOF {
+		err = nil
+	}
+
+	if n < length {
+		_, err = reader.bufReader.Read(result[n:])
+		if err == io.EOF {
+			err = nil
+		}
+	}
 
 	return result, err
 }

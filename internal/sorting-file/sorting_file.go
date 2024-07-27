@@ -39,8 +39,8 @@ func (sortingFile *SortingFile) SplitIntoChunks(outputFolder string, chunkSize i
 			currentChunkSize = 0
 			chunkNumber++
 			filePath := filepath.Join(outputFolder, strconv.Itoa(chunkNumber)+".chunk")
-			ch := chunk.NewChunk(filePath, false, false)
-			writer = chunk.NewChunkWriter(false)
+			ch := chunk.NewChunk(filePath, true, true)
+			writer = chunk.NewChunkWriter(true)
 			err := writer.Create(filePath)
 			if err != nil {
 				return result, err

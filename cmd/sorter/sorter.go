@@ -67,13 +67,13 @@ func mergeChunks(chunks []*chunk.Chunk) *chunk.Chunk {
 
 	mergeChannel := make(chan mergeResult)
 
-	for len(chunks) > 1 {
+	for len(chunks) > 2 {
 		var nextChunks []*chunk.Chunk
 
 		for i := 0; i < len(chunks); i += 2 {
 			if i+1 < len(chunks) {
 				go func() {
-					chunk, err := mergePair(chunks[i], chunks[i+1], false)
+					chunk, err := mergePair(chunks[i], chunks[i+1], true)
 					mergeChannel <- mergeResult{chunk, err}
 				}()
 			} else {
@@ -92,7 +92,12 @@ func mergeChunks(chunks []*chunk.Chunk) *chunk.Chunk {
 		chunks = nextChunks
 	}
 
-	return chunks[0]
+	chunk, err := mergePair(chunks[0], chunks[1], false)
+	if err != nil {
+		panic(err)
+	}
+
+	return chunk
 }
 
 func mergePair(chunk1 *chunk.Chunk, chunk2 *chunk.Chunk, isNewChunkRaw bool) (*chunk.Chunk, error) {

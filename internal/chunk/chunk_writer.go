@@ -8,9 +8,10 @@ import (
 )
 
 type ChunkWriter struct {
-	file      *os.File
-	bufWriter *bufio.Writer
-	writeLine func(*ChunkWriter, []byte) (int, error)
+	file         *os.File
+	bufWriter    *bufio.Writer
+	numberBuffer []byte
+	writeLine    func(*ChunkWriter, []byte) (int, error)
 }
 
 func NewChunkWriter(isRawChunk bool) *ChunkWriter {
@@ -18,7 +19,7 @@ func NewChunkWriter(isRawChunk bool) *ChunkWriter {
 	if isRawChunk {
 		writeLine = writeRawLine
 	}
-	return &ChunkWriter{writeLine: writeLine}
+	return &ChunkWriter{writeLine: writeLine, numberBuffer: make([]byte, 4)}
 }
 
 func (writer *ChunkWriter) Create(filepath string) error {
@@ -71,12 +72,24 @@ func writeStringLine(writer *ChunkWriter, line []byte) (int, error) {
 }
 
 func writeRawLine(writer *ChunkWriter, line []byte) (int, error) {
-	result := make([]byte, 4+len(line))
+	var n1, n2 int
+	var err error
 
-	binary.BigEndian.PutUint32(result[:4], uint32(len(line)))
-	copy(result[4:], line)
+	if uint32(len(line)) > 200 {
+		panic(line)
+	}
 
-	writer.bufWriter.Write(result)
+	binary.BigEndian.PutUint32(writer.numberBuffer, uint32(len(line)))
+	n1, err = writer.bufWriter.Write(writer.numberBuffer)
+	if err != nil {
+		return n1, err
+	}
 
-	return writer.bufWriter.Write(line[4:])
+	n2, err = writer.bufWriter.Write(line)
+
+	if n1+n2 > 200 {
+		panic(line)
+	}
+
+	return n1 + n2, err
 }
