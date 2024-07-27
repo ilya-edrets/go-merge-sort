@@ -1,27 +1,26 @@
 package chunk
 
 import (
-	"encoding/binary"
-	"io"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 type Line []byte
 
 type Chunk struct {
-	filePath string
-	lines    []Line
+	filePath    string
+	isRawReader bool
+	isRawWriter bool
+	lines       []Line
 }
 
-func NewChunk(filePath string) *Chunk {
-	return &Chunk{filePath: filePath}
+func NewChunk(filePath string, isRawReader bool, isRawWriter bool) *Chunk {
+	return &Chunk{filePath: filePath, isRawReader: isRawReader, isRawWriter: isRawWriter}
 }
 
 func (chunk *Chunk) load() error {
-	reader := NewChunkReader()
+	reader := NewChunkReader(chunk.isRawReader)
 	err := reader.Open(chunk.filePath)
 	if err != nil {
 		return err
@@ -29,20 +28,9 @@ func (chunk *Chunk) load() error {
 	defer reader.Close()
 
 	chunk.lines = make([]Line, 0)
-	isEOF := false
-	for text, err := reader.ReadLine(); !isEOF; text, err = reader.ReadLine() {
-		isEOF = err == io.EOF
-		if err != nil && !isEOF {
-			return err
-		}
-
-		line, err := stringToLine(text)
+	for line, err := reader.ReadLine(); line != nil; line, err = reader.ReadLine() {
 		if err != nil {
 			return err
-		}
-
-		if line == nil {
-			continue
 		}
 
 		chunk.lines = append(chunk.lines, line)
@@ -52,7 +40,7 @@ func (chunk *Chunk) load() error {
 }
 
 func (chunk *Chunk) flush() error {
-	writer := NewChunkWriter()
+	writer := NewChunkWriter(chunk.isRawWriter)
 	err := writer.Create(chunk.filePath)
 	if err != nil {
 		return err
@@ -62,7 +50,7 @@ func (chunk *Chunk) flush() error {
 	for i := 0; i < len(chunk.lines); i++ {
 		line := chunk.lines[i]
 
-		err := writeLine(line, writer)
+		_, err := writer.WriteLine(line)
 		if err != nil {
 			return err
 		}
@@ -82,15 +70,15 @@ func (chunk *Chunk) Sort() error {
 	return chunk.flush()
 }
 
-func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
-	reader1 := NewChunkReader()
+func (chunk1 *Chunk) Merge(chunk2 *Chunk, isNewChunkRaw bool) (*Chunk, error) {
+	reader1 := NewChunkReader(chunk1.isRawReader)
 	err := reader1.Open(chunk1.filePath)
 	if err != nil {
 		return nil, err
 	}
 	defer reader1.Close()
 
-	reader2 := NewChunkReader()
+	reader2 := NewChunkReader(chunk2.isRawWriter)
 	err = reader2.Open(chunk2.filePath)
 	if err != nil {
 		return nil, err
@@ -98,47 +86,36 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 	defer reader2.Close()
 
 	outputFileName := strings.Split(chunk1.filePath, ".")[0] + "+" + strings.Split(chunk2.filePath, ".")[0] + ".chunk"
-	result := NewChunk(outputFileName)
-	writer := NewChunkWriter()
+	result := NewChunk(outputFileName, isNewChunkRaw, isNewChunkRaw)
+	writer := NewChunkWriter(result.isRawWriter)
 	err = writer.Create(outputFileName)
 	if err != nil {
 		return nil, err
 	}
 	defer writer.Close()
 
-	var line1, line2, resultLine Line = nil, nil, nil
-	reader1End, reader2End := false, false
+	var line1, line2, resultLine []byte = nil, nil, nil
 
-	for !reader1End || !reader2End {
+	for {
 		if line1 == nil {
-			text1, err := reader1.ReadLine()
-			reader1End = err == io.EOF
-			line1, err = stringToLine(text1)
+			line1, err = reader1.ReadLine()
 			if err != nil {
 				return nil, err
 			}
 		}
 
 		if line2 == nil {
-			text2, err := reader2.ReadLine()
-			reader2End = err == io.EOF
-			line2, err = stringToLine(text2)
+			line2, err = reader2.ReadLine()
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		if reader1End && reader2End {
+		if line1 == nil && line2 == nil {
 			break
 		}
 
-		if line1 == nil {
-			resultLine = line2
-			line2 = nil
-		} else if line2 == nil {
-			resultLine = line1
-			line1 = nil
-		} else if less(line1, line2) {
+		if less(line1, line2) {
 			resultLine = line1
 			line1 = nil
 		} else {
@@ -146,7 +123,7 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk) (*Chunk, error) {
 			line2 = nil
 		}
 
-		err := writeLine(resultLine, writer)
+		_, err := writer.WriteLine(resultLine)
 		if err != nil {
 			return nil, err
 		}
@@ -166,48 +143,6 @@ func (chunk *Chunk) Rename(filePath string) error {
 	}
 
 	return err
-}
-
-func stringToLine(line []byte) (Line, error) {
-	i := 0
-	for ; i < len(line) && line[i] != '.'; i++ {
-	}
-
-	if i == len(line) {
-		return nil, nil
-	}
-
-	part1 := line[:i]
-	text := line[i:]
-
-	n, err := strconv.Atoi(string(part1))
-	if err != nil {
-		return nil, err
-	}
-	number := int32(n)
-
-	result := make([]byte, 4+len(text))
-	resultPt2 := result[4:]
-	binary.BigEndian.PutUint32(result, uint32(number))
-	copy(resultPt2, text)
-
-	return result, nil
-}
-
-func writeLine(line Line, writer *ChunkWriter) error {
-	number := int32(binary.BigEndian.Uint32(line))
-
-	_, err := writer.WriteLine([]byte(strconv.Itoa(int(number))))
-	if err != nil {
-		return err
-	}
-
-	_, err = writer.WriteLine(line[4:])
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func less(line1 Line, line2 Line) bool {

@@ -13,7 +13,7 @@ type args struct {
 	input        string
 	outputFolder string
 	outputFile   string
-	chunkSize    int
+	chunkSize    int64
 }
 
 type mergeResult struct {
@@ -27,8 +27,8 @@ func main() {
 
 	chunks := splitIntoChunks(args)
 	sortChunks(chunks)
-	mergeChunks(chunks)
-	chunks[0].Rename(args.outputFile)
+	chunk := mergeChunks(chunks)
+	chunk.Rename(args.outputFile)
 }
 
 func splitIntoChunks(args args) []*chunk.Chunk {
@@ -62,7 +62,7 @@ func sortChunks(chunks []*chunk.Chunk) {
 	}
 }
 
-func mergeChunks(chunks []*chunk.Chunk) {
+func mergeChunks(chunks []*chunk.Chunk) *chunk.Chunk {
 	defer tracing.Duration(tracing.Track("mergeChunks"))
 
 	mergeChannel := make(chan mergeResult)
@@ -73,7 +73,7 @@ func mergeChunks(chunks []*chunk.Chunk) {
 		for i := 0; i < len(chunks); i += 2 {
 			if i+1 < len(chunks) {
 				go func() {
-					chunk, err := mergePair(chunks[i], chunks[i+1])
+					chunk, err := mergePair(chunks[i], chunks[i+1], false)
 					mergeChannel <- mergeResult{chunk, err}
 				}()
 			} else {
@@ -91,12 +91,14 @@ func mergeChunks(chunks []*chunk.Chunk) {
 
 		chunks = nextChunks
 	}
+
+	return chunks[0]
 }
 
-func mergePair(chunk1 *chunk.Chunk, chunk2 *chunk.Chunk) (*chunk.Chunk, error) {
+func mergePair(chunk1 *chunk.Chunk, chunk2 *chunk.Chunk, isNewChunkRaw bool) (*chunk.Chunk, error) {
 	defer tracing.Duration(tracing.Track("mergePair"))
 
-	chunk, err := chunk1.Merge(chunk2)
+	chunk, err := chunk1.Merge(chunk2, isNewChunkRaw)
 	if err != nil {
 		return chunk, err
 	}
@@ -116,7 +118,7 @@ func getArgs() args {
 		input:        "unsorted.txt",
 		outputFolder: ".",
 		outputFile:   "sorted.txt",
-		chunkSize:    1000,
+		chunkSize:    350,
 	}
 
 	idx := slices.IndexFunc(os.Args, func(s string) bool { return s == "--input" })
@@ -136,10 +138,17 @@ func getArgs() args {
 
 	idx = slices.IndexFunc(os.Args, func(s string) bool { return s == "--chunkSize" })
 	if idx >= 0 {
-		args.chunkSize, err = strconv.Atoi(os.Args[idx+1])
+		var n int
+		n, err = strconv.Atoi(os.Args[idx+1])
 		if err != nil {
 			panic(err)
 		}
+		args.chunkSize = int64(n)
+	}
+
+	fi, _ := os.Stat(args.input)
+	if (fi.Size() / args.chunkSize) > 10 {
+		args.chunkSize = fi.Size() / 10
 	}
 
 	return args
