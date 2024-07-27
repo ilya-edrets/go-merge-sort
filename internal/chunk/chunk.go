@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-type Line []byte
-
 type Chunk struct {
 	filePath    string
 	isRawReader bool
@@ -20,7 +18,7 @@ func NewChunk(filePath string, isRawReader bool, isRawWriter bool) *Chunk {
 }
 
 func (chunk *Chunk) load() error {
-	reader := NewChunkReader(chunk.isRawReader)
+	reader := NewLineReader(chunk.isRawReader)
 	err := reader.Open(chunk.filePath)
 	if err != nil {
 		return err
@@ -40,7 +38,7 @@ func (chunk *Chunk) load() error {
 }
 
 func (chunk *Chunk) flush() error {
-	writer := NewChunkWriter(chunk.isRawWriter)
+	writer := NewLineWriter(chunk.isRawWriter)
 	err := writer.Create(chunk.filePath)
 	if err != nil {
 		return err
@@ -71,14 +69,14 @@ func (chunk *Chunk) Sort() error {
 }
 
 func (chunk1 *Chunk) Merge(chunk2 *Chunk, isNewChunkRaw bool) (*Chunk, error) {
-	reader1 := NewChunkReader(chunk1.isRawReader)
+	reader1 := NewLineReader(chunk1.isRawReader)
 	err := reader1.Open(chunk1.filePath)
 	if err != nil {
 		return nil, err
 	}
 	defer reader1.Close()
 
-	reader2 := NewChunkReader(chunk2.isRawWriter)
+	reader2 := NewLineReader(chunk2.isRawWriter)
 	err = reader2.Open(chunk2.filePath)
 	if err != nil {
 		return nil, err
@@ -87,14 +85,14 @@ func (chunk1 *Chunk) Merge(chunk2 *Chunk, isNewChunkRaw bool) (*Chunk, error) {
 
 	outputFileName := strings.Split(chunk1.filePath, ".")[0] + "+" + strings.Split(chunk2.filePath, ".")[0] + ".chunk"
 	result := NewChunk(outputFileName, isNewChunkRaw, isNewChunkRaw)
-	writer := NewChunkWriter(result.isRawWriter)
+	writer := NewLineWriter(result.isRawWriter)
 	err = writer.Create(outputFileName)
 	if err != nil {
 		return nil, err
 	}
 	defer writer.Close()
 
-	var line1, line2, resultLine []byte = nil, nil, nil
+	var line1, line2, resultLine Line = nil, nil, nil
 
 	for {
 		if line1 == nil {

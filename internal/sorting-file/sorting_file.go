@@ -19,14 +19,14 @@ func NewSortingFile(filePath string) *SortingFile {
 func (sortingFile *SortingFile) SplitIntoChunks(outputFolder string, chunkSize int64) ([]*chunk.Chunk, error) {
 	result := make([]*chunk.Chunk, 0)
 
-	reader := chunk.NewChunkReader(false)
+	reader := chunk.NewLineReader(false)
 	err := reader.Open(sortingFile.filePath)
 	if err != nil {
 		return result, err
 	}
 	defer reader.Close()
 
-	var writer *chunk.ChunkWriter
+	var writer *chunk.LineWriter
 	currentChunkSize := chunkSize
 	chunkNumber := 0
 
@@ -40,7 +40,7 @@ func (sortingFile *SortingFile) SplitIntoChunks(outputFolder string, chunkSize i
 			chunkNumber++
 			filePath := filepath.Join(outputFolder, strconv.Itoa(chunkNumber)+".chunk")
 			ch := chunk.NewChunk(filePath, true, true)
-			writer = chunk.NewChunkWriter(true)
+			writer = chunk.NewLineWriter(true)
 			err := writer.Create(filePath)
 			if err != nil {
 				return result, err

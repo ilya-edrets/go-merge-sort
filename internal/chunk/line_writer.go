@@ -2,27 +2,27 @@ package chunk
 
 import (
 	"bufio"
-	"encoding/binary"
+	"merge-sort/internal/helpers"
 	"os"
 	"strconv"
 )
 
-type ChunkWriter struct {
+type LineWriter struct {
 	file         *os.File
 	bufWriter    *bufio.Writer
 	numberBuffer []byte
-	writeLine    func(*ChunkWriter, []byte) (int, error)
+	writeLine    func(*LineWriter, Line) (int, error)
 }
 
-func NewChunkWriter(isRawChunk bool) *ChunkWriter {
+func NewLineWriter(isRawChunk bool) *LineWriter {
 	writeLine := writeStringLine
 	if isRawChunk {
 		writeLine = writeRawLine
 	}
-	return &ChunkWriter{writeLine: writeLine, numberBuffer: make([]byte, 4)}
+	return &LineWriter{writeLine: writeLine, numberBuffer: make([]byte, 4)}
 }
 
-func (writer *ChunkWriter) Create(filepath string) error {
+func (writer *LineWriter) Create(filepath string) error {
 	var err error
 	writer.file, err = os.Create(filepath)
 	if err != nil {
@@ -34,7 +34,7 @@ func (writer *ChunkWriter) Create(filepath string) error {
 	return nil
 }
 
-func (reader *ChunkWriter) Close() error {
+func (reader *LineWriter) Close() error {
 	err := reader.bufWriter.Flush()
 	if err != nil {
 		return err
@@ -43,15 +43,15 @@ func (reader *ChunkWriter) Close() error {
 	return reader.file.Close()
 }
 
-func (writer *ChunkWriter) WriteLine(line []byte) (int, error) {
+func (writer *LineWriter) WriteLine(line Line) (int, error) {
 	return writer.writeLine(writer, line)
 }
 
-func writeStringLine(writer *ChunkWriter, line []byte) (int, error) {
+func writeStringLine(writer *LineWriter, line Line) (int, error) {
 	var n, total int
 	var err error
 
-	number := int(int32(binary.BigEndian.Uint32(line)))
+	number := helpers.ToInt(line[:4])
 
 	n, err = writer.bufWriter.Write([]byte(strconv.Itoa(number)))
 	total += n
@@ -71,25 +71,17 @@ func writeStringLine(writer *ChunkWriter, line []byte) (int, error) {
 	return total, err
 }
 
-func writeRawLine(writer *ChunkWriter, line []byte) (int, error) {
+func writeRawLine(writer *LineWriter, line Line) (int, error) {
 	var n1, n2 int
 	var err error
 
-	if uint32(len(line)) > 200 {
-		panic(line)
-	}
-
-	binary.BigEndian.PutUint32(writer.numberBuffer, uint32(len(line)))
+	helpers.ToBytes(writer.numberBuffer, len(line))
 	n1, err = writer.bufWriter.Write(writer.numberBuffer)
 	if err != nil {
 		return n1, err
 	}
 
 	n2, err = writer.bufWriter.Write(line)
-
-	if n1+n2 > 200 {
-		panic(line)
-	}
 
 	return n1 + n2, err
 }
