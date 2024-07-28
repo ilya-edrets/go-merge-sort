@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultBufSize = 64 // 1024 * 1024
+	defaultBufSize = 1024 * 1024
 )
 
 type LineReader struct {
